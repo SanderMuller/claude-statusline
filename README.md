@@ -1,13 +1,19 @@
 # claude-statusline
 
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg?style=flat-square)](LICENSE)
+[![Shell: Bash](https://img.shields.io/badge/shell-bash-4EAA25?style=flat-square&logo=gnubash&logoColor=white)](statusline.sh)
+[![Claude Code](https://img.shields.io/badge/Claude%20Code-status%20line-D97757?style=flat-square&logo=anthropic&logoColor=white)](https://docs.claude.com/en/docs/claude-code/statusline)
+
 A two-row, color-coded status line for [Claude Code](https://docs.claude.com/en/docs/claude-code). It shows your working directory, model, context-window usage, how many skills and workflows you've used this session, and your 5-hour / 7-day rate-limit windows with progress bars and reset times.
 
+![claude-statusline screenshot](screenshot.png)
+
 ```
-PWD: my-project · Opus 4.8 · ctx █████░░░░░░░ 43% · skills 2 · wf 0
-5h ████████░░░░ 65% resets 17:06 · 7d ███████████░ 88% resets Wed 15:06
+PWD: app · Claude Opus 4.8 · ctx ███░░░░░░░░░ 24% · skills 3 · wf 1
+5h ████░░░░░░░░ 31% resets 14:30 · 7d ██░░░░░░░░░░ 12% resets Tue 09:00
 ```
 
-(In the terminal the labels are light-blue, values bright white, and each bar is green / yellow / red by how full it is.)
+In the terminal the directory is cyan, the model magenta, labels light-blue, values bright white, and each bar is green / yellow / red by how full it is.
 
 ## Install
 
@@ -21,15 +27,15 @@ Prefer not to pipe to a shell? See [manual install](#manual-install).
 
 ## What it shows
 
-| Segment | Source | Notes |
-|---|---|---|
-| `PWD: <dir>` | `workspace.current_dir` | Shortened — see [configuration](#configuration) |
-| model | `model.display_name` | |
-| `ctx <bar> NN%` | `context_window.used_percentage` | Bar colored by usage |
-| `skills N` | session transcript | Count of `Skill` tool calls this session |
-| `wf N` | session transcript | Count of `Workflow` tool calls this session |
-| `5h <bar> NN% resets <time>` | `rate_limits.five_hour.*` | 5-hour rate-limit window |
-| `7d <bar> NN% resets <time>` | `rate_limits.seven_day.*` | 7-day rate-limit window |
+| Segment                      | Source                           | Notes                                           |
+|------------------------------|----------------------------------|-------------------------------------------------|
+| `PWD: <dir>`                 | `workspace.current_dir`          | Shortened — see [configuration](#configuration) |
+| model                        | `model.display_name`             |                                                 |
+| `ctx <bar> NN%`              | `context_window.used_percentage` | Bar colored by usage                            |
+| `skills N`                   | session transcript               | Count of `Skill` tool calls this session        |
+| `wf N`                       | session transcript               | Count of `Workflow` tool calls this session     |
+| `5h <bar> NN% resets <time>` | `rate_limits.five_hour.*`        | 5-hour rate-limit window                        |
+| `7d <bar> NN% resets <time>` | `rate_limits.seven_day.*`        | 7-day rate-limit window                         |
 
 Bar colors: green below 50%, yellow 50–79%, red 80%+.
 
@@ -44,10 +50,10 @@ Bar colors: green below 50%, yellow 50–79%, red 80%+.
 
 Two knobs, set as environment variables (or edit the top of `statusline.sh`):
 
-| Variable | Default | Effect |
-|---|---|---|
+| Variable                         | Default                  | Effect                                                                                                                            |
+|----------------------------------|--------------------------|-----------------------------------------------------------------------------------------------------------------------------------|
 | `CLAUDE_STATUSLINE_PROJECT_ROOT` | `$HOME/Documents/GitHub` | Paths under this folder are shown relative to it (`~/Documents/GitHub/app` → `app`). Set to `""` to just collapse `$HOME` to `~`. |
-| `CLAUDE_STATUSLINE_BAR_WIDTH` | `12` | Width of each progress bar in characters. |
+| `CLAUDE_STATUSLINE_BAR_WIDTH`    | `12`                     | Width of each progress bar in characters.                                                                                         |
 
 To change them, set the variable wherever Claude Code picks up your environment, or edit the `PROJECT_ROOT` / `BAR_WIDTH` lines at the top of the installed `statusline.sh`. The color palette and the green/yellow/red thresholds are defined just below those lines and are easy to tweak.
 
