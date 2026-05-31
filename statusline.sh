@@ -13,7 +13,7 @@
 # Paths under PROJECT_ROOT are shown relative to it
 # (e.g. "~/Documents/GitHub/app" -> "app"). Set to "" to disable and just
 # collapse $HOME to "~".
-PROJECT_ROOT="${CLAUDE_STATUSLINE_PROJECT_ROOT:-$HOME/Documents/GitHub}"
+PROJECT_ROOT="${CLAUDE_STATUSLINE_PROJECT_ROOT-$HOME/Documents/GitHub}"
 BAR_WIDTH="${CLAUDE_STATUSLINE_BAR_WIDTH:-12}"
 # ----------------------------------------------------------------------------
 

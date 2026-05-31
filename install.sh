@@ -29,9 +29,13 @@ command -v jq >/dev/null 2>&1 || die "jq is required. Install it first — macOS
 
 mkdir -p "$CLAUDE_DIR"
 
-# Resolve the script source: prefer a local copy (running from a clone),
-# otherwise download from the repo.
-SELF_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" 2>/dev/null && pwd || true)"
+# Resolve the script source: prefer a local copy when run from a clone,
+# otherwise download from the repo. We only treat this as a clone when the
+# installer is a real file on disk (not piped via `curl | bash`, where $0 is
+# "bash" and would otherwise resolve to the current working directory).
+SELF="${BASH_SOURCE[0]:-}"
+SELF_DIR=""
+[[ -f "$SELF" ]] && SELF_DIR="$(cd "$(dirname "$SELF")" 2>/dev/null && pwd || true)"
 tmp_script="$(mktemp)"
 if [[ -n "$SELF_DIR" && -f "$SELF_DIR/statusline.sh" ]]; then
     info "Using local statusline.sh"
