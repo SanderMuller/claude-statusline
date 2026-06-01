@@ -58,15 +58,31 @@ bar() {
 # ---- Row 1: directory · model · context · skills · workflows ---------------
 row1=()
 
+ARROW="${e}[38;5;245m→${RST}"   # subfolder separator inside a repo
 dir=$(jqf '.workspace.current_dir')
 if [[ -n "$dir" ]]; then
     short="$dir"
-    if [[ -n "$PROJECT_ROOT" && "$dir" == "$PROJECT_ROOT"/* ]]; then
-        short="${dir#"$PROJECT_ROOT"/}"
-    elif [[ "$dir" == "$HOME" || "$dir" == "$HOME"/* ]]; then
-        short="~${dir#"$HOME"}"
+    rel="${dir#"$PROJECT_ROOT"/}"
+    rel="${rel%/}"                   # tolerate a trailing slash on dir
+    rel=$(printf '%s' "$rel" | tr -s /)  # collapse repeated // into /
+    rel="${rel#/}"                   # drop any leading slash
+    if [[ -n "$PROJECT_ROOT" && "$dir" == "$PROJECT_ROOT"/* && -n "$rel" ]]; then
+        # Under PROJECT_ROOT: show "repo" or "repo → sub/path".
+        repo="${rel%%/*}"            # first segment = repo
+        sub="${rel#"$repo"}"         # remainder, leading "/" kept
+        sub="${sub#/}"               # strip leading "/"
+        if [[ -n "$sub" ]]; then
+            short="${DIR}${repo}${RST} ${ARROW} ${DIR}${sub}${RST}"
+        else
+            short="${DIR}${repo}${RST}"
+        fi
+        row1+=("${LBL}PWD:${RST} ${short}")
+    else
+        if [[ "$dir" == "$HOME" || "$dir" == "$HOME"/* ]]; then
+            short="~${dir#"$HOME"}"
+        fi
+        row1+=("${LBL}PWD:${RST} ${DIR}${short}${RST}")
     fi
-    row1+=("${LBL}PWD:${RST} ${DIR}${short}${RST}")
 fi
 
 model=$(jqf '.model.display_name')

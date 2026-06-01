@@ -39,6 +39,23 @@ Prefer not to pipe to a shell? See [manual install](#manual-install).
 
 Bar colors: green below 50%, yellow 50–79%, red 80%+.
 
+### The `PWD` segment
+
+The directory is shortened so you see *where you are* without the noise of a full path. It depends on `CLAUDE_STATUSLINE_PROJECT_ROOT` (default `$HOME/Documents/GitHub`):
+
+| Current directory                                      | Shown as                              | Why                                                   |
+|--------------------------------------------------------|---------------------------------------|-------------------------------------------------------|
+| `~/Documents/GitHub/claude-statusline`                 | `claude-statusline`                   | Repo at the root of `PROJECT_ROOT` — just its name    |
+| `~/Documents/GitHub/claude-statusline/internal/blabla` | `claude-statusline → internal/blabla` | In a subfolder — repo name, arrow, then the subpath   |
+| `~/Documents/GitHub`                                   | `~/Documents/GitHub`                  | `PROJECT_ROOT` itself — not inside a repo             |
+| `~/Downloads/foo`                                      | `~/Downloads/foo`                     | Outside `PROJECT_ROOT` — full path, `$HOME` collapsed |
+| `/etc/nginx`                                           | `/etc/nginx`                          | Outside `$HOME` — shown verbatim                      |
+| `~`                                                    | `~`                                   | Home directory                                        |
+
+The `repo → sub/path` form makes it obvious you're in the `claude-statusline` repo *and* which subfolder, instead of either the bare folder name or the whole absolute path.
+
+Set `CLAUDE_STATUSLINE_PROJECT_ROOT=""` to disable the repo shortening — then paths only get `$HOME` collapsed to `~`.
+
 ## Requirements
 
 - Claude Code (recent enough to expose the `rate_limits.*` and `context_window.*` fields on the status-line input).
