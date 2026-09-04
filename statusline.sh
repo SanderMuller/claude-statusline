@@ -185,6 +185,32 @@ jetbrains_fonts() {
     done
 }
 
+# Font families configured for the VS Code integrated terminal, and its forks
+# (Cursor, VSCodium, Windsurf) which all report themselves as vscode.
+#
+# terminal.integrated.fontFamily wins, falling back to editor.fontFamily, and a
+# workspace setting overrides the user one. The files are JSONC -- comments and
+# trailing commas are legal there -- so the keys are matched textually rather
+# than parsed with jq, which would choke on a commented settings file.
+vscode_fonts() {
+    local d=$1 base f found="" candidates=() c
+    base="$HOME/Library/Application Support"
+    [[ -d "$base" ]] || base="$HOME/.config"
+    for c in "Code" "Code - Insiders" "VSCodium" "Cursor" "Windsurf"; do
+        [[ -f "$base/$c/User/settings.json" ]] && candidates+=("$base/$c/User/settings.json")
+    done
+    # Workspace settings override the user ones, so they are consulted first.
+    [[ -n "$d" && -f "$d/.vscode/settings.json" ]] && \
+        candidates=("$d/.vscode/settings.json" "${candidates[@]}")
+    for f in "${candidates[@]}"; do
+        found=$(sed -n 's/.*"terminal\.integrated\.fontFamily"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' \
+                "$f" 2>/dev/null | head -1)
+        [[ -z "$found" ]] && found=$(sed -n 's/.*"editor\.fontFamily"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' \
+                "$f" 2>/dev/null | head -1)
+        if [[ -n "$found" ]]; then printf '%s' "$found"; return; fi
+    done
+}
+
 # The font macOS Terminal.app is configured to use, or nothing when it cannot be
 # determined. The name is buried in an NSKeyedArchiver blob inside the profile,
 # where NSName is a reference into the archive's $objects table.
@@ -215,8 +241,9 @@ terminal_font() {
 # tty, and the status line has no controlling terminal.
 #
 # So "auto" asks which font the terminal is *configured* with, and uses icons
-# only when that font is a patched one. JetBrains IDE terminals and macOS
-# Terminal.app can be read; elsewhere nothing is found and the answer is no. Whether a Nerd Font is installed is not
+# only when that font is a patched one. JetBrains IDE terminals, the VS Code
+# integrated terminal and macOS Terminal.app can be read; elsewhere nothing is
+# found and the answer is no. Whether a Nerd Font is installed is not
 # the question -- having one installed says nothing about the terminal using it.
 # When the font cannot be determined the answer is no, because a wrong yes shows
 # the user a corrupted row while a wrong no just costs a few columns.
@@ -237,11 +264,17 @@ icons_enabled() {
     v=0
     if [[ "$TERMINAL_EMULATOR" == "JetBrains-JediTerm" ]]; then
         font=$(jetbrains_fonts)
+    elif [[ "$TERM_PROGRAM" == "vscode" || "$__CFBundleIdentifier" == *VSCode* ]]; then
+        font=$(vscode_fonts "$dir")
     else
         font=$(terminal_font)
     fi
+    # Patched fonts appear both as family names ("MesloLGS NF", "JetBrainsMono
+    # Nerd Font") and as PostScript names ("Hack-NF-Regular", "...NFM-Regular"),
+    # so "NF" has to be matched as a token at either end or between separators --
+    # including the comma of a font stack like "MesloLGS NF, monospace".
     case "$font" in
-        *[Nn]erd*|*NF-*|*NFM-*|*NFP-*) v=1 ;;
+        *[Nn]erd*|*NF|*NF\ *|*NF,*|*NF-*|*-NF*|*NFM*|*NFP*) v=1 ;;
     esac
     mkdir -p "$CACHE_DIR" 2>/dev/null
     printf '%s' "$v" > "$f" 2>/dev/null
