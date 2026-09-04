@@ -56,6 +56,24 @@ The directory is shortened so you see *where you are* without the noise of a ful
 | `/etc/nginx`                                           | `/etc/nginx`                          | Outside `$HOME` — shown verbatim                      |
 | `~`                                                    | `~`                                   | Home directory                                        |
 
+[Polyscope](https://polyscope.dev) clones live at `CLAUDE_STATUSLINE_POLYSCOPE_ROOT` (default `$HOME/.polyscope/clones`) under a workspace hash. The hash says nothing to a reader, so it is dropped:
+
+| Current directory                            | Shown as                        |
+|----------------------------------------------|---------------------------------|
+| `~/.polyscope/clones/9f7e9ead/snowy-squid`   | `polyscope → snowy-squid`       |
+| `~/.polyscope/clones/9f7e9ead/snowy-squid/src` | `polyscope → snowy-squid/src` |
+
+Set `CLAUDE_STATUSLINE_POLYSCOPE_ROOT=""` to disable it and fall back to the plain path rules.
+
+Git worktrees are detected from git itself, wherever they live — Claude Code puts them in `.claude/worktrees/`, so the plain rules would otherwise show that whole nested path:
+
+| Current directory                                 | Shown as                            |
+|---------------------------------------------------|-------------------------------------|
+| `~/Documents/GitHub/app/.claude/worktrees/fix-auth` | `app → wt:fix-auth`               |
+| `…/.claude/worktrees/fix-auth/src`                | `app → wt:fix-auth/src`             |
+
+The repo name is the main checkout's, so you can see which repo the worktree belongs to and which worktree you're in at once. It costs one `git rev-parse` per render.
+
 The `repo → sub/path` form makes it obvious you're in the `claude-statusline` repo *and* which subfolder, instead of either the bare folder name or the whole absolute path.
 
 Set `CLAUDE_STATUSLINE_PROJECT_ROOT=""` to disable the repo shortening — then paths only get `$HOME` collapsed to `~`.
@@ -74,6 +92,7 @@ Set these as environment variables, or edit the block at the top of `statusline.
 | Variable                         | Default                  | Effect                                                                                                                                                      |
 |----------------------------------|--------------------------|-------------------------------------------------------------------------------------------------------------------------------------------------------------|
 | `CLAUDE_STATUSLINE_PROJECT_ROOT` | `$HOME/Documents/GitHub` | Paths under this folder are shown relative to it (`~/Documents/GitHub/app` → `app`). Set to `""` to just collapse `$HOME` to `~`.                           |
+| `CLAUDE_STATUSLINE_POLYSCOPE_ROOT` | `$HOME/.polyscope/clones` | Polyscope clone root. Paths under it are shown as `polyscope → <clone>`, dropping the workspace hash. Set to `""` to disable.                              |
 | `CLAUDE_STATUSLINE_BAR_WIDTH`    | `12`                     | Width of each progress bar in columns.                                                                                                                      |
 | `CLAUDE_CONFIG_DIR`              | `$HOME/.claude`          | Where the session registry (`sessions/`) is read from for the `peer` name.                                                                                   |
 | `CLAUDE_STATUSLINE_WIDTH`        | `$COLUMNS`, else `80`    | Width to lay out against. Claude Code exports `COLUMNS`, so this is rarely worth setting.                                                                    |

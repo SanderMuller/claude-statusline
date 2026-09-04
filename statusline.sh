@@ -20,6 +20,10 @@
 # (e.g. "~/Documents/GitHub/app" -> "app"). Set to "" to disable and just
 # collapse $HOME to "~".
 PROJECT_ROOT="${CLAUDE_STATUSLINE_PROJECT_ROOT-$HOME/Documents/GitHub}"
+# Polyscope clones live at <root>/<workspace-hash>/<clone-name>. The hash says
+# nothing to a reader, so those paths are shown as "polyscope -> <clone-name>".
+# Set to "" to disable and fall back to the plain path rules.
+POLYSCOPE_ROOT="${CLAUDE_STATUSLINE_POLYSCOPE_ROOT-$HOME/.polyscope/clones}"
 BAR_WIDTH="${CLAUDE_STATUSLINE_BAR_WIDTH:-12}"
 # Optional hard ceilings for the variable-length fields. 0 means "no ceiling":
 # the field is shown in full and only elided if it cannot fit a row on its own.
@@ -306,6 +310,32 @@ fmt_time() {
     date -r "$epoch" "$spec" 2>/dev/null || date -d "@$epoch" "$spec" 2>/dev/null
 }
 
+# When $1 sits in a linked git worktree, print "<main-repo-name>\t<worktree-name>"
+# (tab-separated); print nothing anywhere else. A worktree keeps its own git dir
+# under the main repo's, so a --git-dir that differs from --git-common-dir is
+# what tells the two apart. --path-format needs git >= 2.31; without it the two
+# can differ only in being relative, so both are resolved before comparing.
+git_worktree() {
+    local d=$1 common gitdir top
+    [[ -n "$d" && -d "$d" ]] || return
+    IFS=$'\n' read -r -d '' common gitdir top < <(
+        GIT_OPTIONAL_LOCKS=0 git -C "$d" rev-parse --path-format=absolute \
+            --git-common-dir --git-dir --show-toplevel 2>/dev/null \
+        || GIT_OPTIONAL_LOCKS=0 git -C "$d" rev-parse \
+            --git-common-dir --git-dir --show-toplevel 2>/dev/null
+        printf '\0')
+    [[ -n "$common" && -n "$gitdir" && -n "$top" ]] || return
+    common=$(cd "$d" 2>/dev/null && cd "$common" 2>/dev/null && pwd) || return
+    gitdir=$(cd "$d" 2>/dev/null && cd "$gitdir" 2>/dev/null && pwd) || return
+    [[ -n "$common" && "$common" != "$gitdir" ]] || return
+    # The main checkout is the parent of the common git dir — except for a bare
+    # or external one ($GIT_DIR elsewhere), which names no useful checkout.
+    common="${common%/}"
+    [[ "${common##*/}" == ".git" ]] || return
+    common="${common%/.git}"
+    printf '%s\t%s' "${common##*/}" "${top##*/}"
+}
+
 # Current git branch for a directory (short SHA when detached), or nothing.
 git_branch() {
     local d=$1
@@ -395,15 +425,37 @@ add_seg() { seg_text+=("$1"); seg_w+=("$2"); seg_brk+=("$_brk"); _brk=0; }
 
 dir=$(jqf '.workspace.current_dir')
 if [[ -n "$dir" ]]; then
-    rel="${dir#"$PROJECT_ROOT"/}"
-    rel="${rel%/}"                       # tolerate a trailing slash on dir
-    rel=$(printf '%s' "$rel" | tr -s /)  # collapse repeated // into /
-    rel="${rel#/}"                       # drop any leading slash
-    if [[ -n "$PROJECT_ROOT" && "$dir" == "$PROJECT_ROOT"/* && -n "$rel" ]]; then
+    norm_rel() {                         # path relative to $2, normalized
+        local r="${1#"$2"/}"
+        r="${r%/}"                       # tolerate a trailing slash on dir
+        r=$(printf '%s' "$r" | tr -s /)  # collapse repeated // into /
+        printf '%s' "${r#/}"             # drop any leading slash
+    }
+    rel=$(norm_rel "$dir" "$PROJECT_ROOT")
+    ps_rel=$(norm_rel "$dir" "$POLYSCOPE_ROOT")
+    repo="" sub=""
+    wt=$(git_worktree "$dir")
+    if [[ -n "$wt" ]]; then
+        # In a linked worktree: "repo → wt:<worktree>[/sub]". A worktree lives
+        # inside the repo it belongs to, so this is checked first — the path
+        # rules below would otherwise show its whole nested location.
+        repo="${wt%%$'\t'*}"
+        sub="wt:${wt#*$'\t'}"
+        wt_top=$(GIT_OPTIONAL_LOCKS=0 git -C "$dir" rev-parse --show-toplevel 2>/dev/null)
+        wt_sub=$(norm_rel "$dir" "$wt_top")
+        [[ -n "$wt_top" && -n "$wt_sub" && "$dir" == "$wt_top"/* ]] && sub="$sub/$wt_sub"
+    elif [[ -n "$POLYSCOPE_ROOT" && "$dir" == "$POLYSCOPE_ROOT"/* && "$ps_rel" == */* ]]; then
+        # Under POLYSCOPE_ROOT: "<workspace-hash>/<clone>[/sub]" -> drop the
+        # hash and show "polyscope → clone[/sub]".
+        repo="polyscope"
+        sub="${ps_rel#*/}"
+    elif [[ -n "$PROJECT_ROOT" && "$dir" == "$PROJECT_ROOT"/* && -n "$rel" ]]; then
         # Under PROJECT_ROOT: show "repo" or "repo → sub/path".
         repo="${rel%%/*}"                # first segment = repo
         sub="${rel#"$repo"}"             # remainder, leading "/" kept
         sub="${sub#/}"                   # strip leading "/"
+    fi
+    if [[ -n "$repo" ]]; then
         if [[ -n "$sub" ]]; then
             # The repo name is the anchor, so it is kept whole and the subpath
             # gives way first — from its head, since the folder you are in is
