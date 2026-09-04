@@ -44,11 +44,13 @@ MAX_ROWS="${CLAUDE_STATUSLINE_MAX_ROWS:-0}"
 # VERSIONS to 0 to switch the row off entirely.
 VERSIONS="${CLAUDE_STATUSLINE_VERSIONS:-1}"
 VERSIONS_TTL="${CLAUDE_STATUSLINE_VERSIONS_TTL:-300}"
-# Label runtimes with Nerd Font icons instead of words. Off by default: without
-# a patched font these render as tofu boxes. ICON_WIDTH is how many columns an
-# icon is budgeted; most terminals draw these single-width, but 2 is the safe
-# assumption because under-budgeting is what gets a row clipped.
-ICONS="${CLAUDE_STATUSLINE_ICONS:-0}"
+# Label runtimes with Nerd Font icons instead of words. "auto" uses icons only
+# when a Nerd Font is installed; 1 forces them, 0 always uses words. ICON_WIDTH
+# is how many columns an icon is budgeted; most terminals draw these
+# single-width, but 2 is the safe assumption because under-budgeting is what
+# gets a row clipped.
+ICONS="${CLAUDE_STATUSLINE_ICONS:-auto}"
+FONT_TTL="${CLAUDE_STATUSLINE_FONT_TTL:-86400}"
 ICON_WIDTH="${CLAUDE_STATUSLINE_ICON_WIDTH:-2}"
 CACHE_DIR="${CLAUDE_CONFIG_DIR:-$HOME/.claude}/statusline-cache"
 # ----------------------------------------------------------------------------
@@ -161,10 +163,45 @@ probe_versions() {
     return 0
 }
 
+# Whether to draw runtime icons.
+#
+# The glyphs live in the Unicode private use area, so a terminal without a
+# patched font substitutes something arbitrary rather than showing nothing --
+# which is worse than the word it replaced. There is no way to ask the terminal
+# what it is rendering: that would need a cursor-position report read back from
+# the tty, and the status line has no controlling terminal. So "auto" settles
+# for the one thing that is knowable, whether a Nerd Font is installed at all.
+# Scanning the font directories takes long enough to be worth caching for a day.
+icons_enabled() {
+    case "$ICONS" in
+        1|true|yes) return 0 ;;
+        0|false|no) return 1 ;;
+    esac
+    local f="$CACHE_DIR/nerdfont" age now v
+    now=$(date +%s)
+    if [[ -f "$f" ]]; then
+        age=$(( now - $(mtime "$f") ))
+        if (( age >= 0 && age < FONT_TTL )); then
+            [[ "$(cat "$f" 2>/dev/null)" == 1 ]]
+            return
+        fi
+    fi
+    v=0
+    if ls "$HOME/Library/Fonts" /Library/Fonts /System/Library/Fonts 2>/dev/null \
+        | grep -qi nerd; then
+        v=1
+    elif command -v fc-list >/dev/null 2>&1 && fc-list 2>/dev/null | grep -qi nerd; then
+        v=1
+    fi
+    mkdir -p "$CACHE_DIR" 2>/dev/null
+    printf '%s' "$v" > "$f" 2>/dev/null
+    [[ "$v" == 1 ]]
+}
+
 # Nerd Font icon for a runtime, from the devicons range. Prints nothing when
 # icons are off or the runtime has none, so the caller falls back to the word.
 runtime_icon() {
-    [[ "$ICONS" == 1 ]] || return
+    [[ "$ICONS_ON" == 1 ]] || return
     # Literal glyphs, not \u escapes: bash 3.2's printf does not expand those.
     case $1 in
         node)    printf '' ;;
@@ -347,6 +384,8 @@ rate_seg() {
     fi
     add_seg "$seg" "$w"
 }
+
+if icons_enabled; then ICONS_ON=1; else ICONS_ON=0; fi
 
 # Runtime versions get a row of their own, between "where you are" and "what
 # you have left".
