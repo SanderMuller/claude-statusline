@@ -50,7 +50,7 @@ VERSIONS_TTL="${CLAUDE_STATUSLINE_VERSIONS_TTL:-300}"
 # single-width, but 2 is the safe assumption because under-budgeting is what
 # gets a row clipped.
 ICONS="${CLAUDE_STATUSLINE_ICONS:-auto}"
-FONT_TTL="${CLAUDE_STATUSLINE_FONT_TTL:-86400}"
+FONT_TTL="${CLAUDE_STATUSLINE_FONT_TTL:-3600}"
 ICON_WIDTH="${CLAUDE_STATUSLINE_ICON_WIDTH:-2}"
 CACHE_DIR="${CLAUDE_CONFIG_DIR:-$HOME/.claude}/statusline-cache"
 # ----------------------------------------------------------------------------
@@ -163,21 +163,46 @@ probe_versions() {
     return 0
 }
 
+# The font macOS Terminal.app is configured to use, or nothing when it cannot be
+# determined. The name is buried in an NSKeyedArchiver blob inside the profile,
+# where NSName is a reference into the archive's $objects table.
+terminal_font() {
+    local plist="$HOME/Library/Preferences/com.apple.Terminal.plist" prof tmp uid name
+    [[ -f "$plist" ]] || return
+    command -v plutil >/dev/null 2>&1 || return
+    prof=$(defaults read com.apple.Terminal "Default Window Settings" 2>/dev/null)
+    [[ -n "$prof" ]] || return
+    tmp=$(mktemp) || return
+    plutil -extract "Window Settings.$prof.Font" raw -o - "$plist" 2>/dev/null \
+        | base64 --decode > "$tmp" 2>/dev/null
+    uid=$(plutil -p "$tmp" 2>/dev/null \
+        | sed -n 's/.*"NSName".*value = \([0-9][0-9]*\).*/\1/p' | head -1)
+    if [[ -n "$uid" ]]; then
+        name=$(plutil -extract "\$objects.$uid" raw -o - "$tmp" 2>/dev/null)
+    fi
+    rm -f "$tmp"
+    printf '%s' "$name"
+}
+
 # Whether to draw runtime icons.
 #
 # The glyphs live in the Unicode private use area, so a terminal without a
 # patched font substitutes something arbitrary rather than showing nothing --
-# which is worse than the word it replaced. There is no way to ask the terminal
-# what it is rendering: that would need a cursor-position report read back from
-# the tty, and the status line has no controlling terminal. So "auto" settles
-# for the one thing that is knowable, whether a Nerd Font is installed at all.
-# Scanning the font directories takes long enough to be worth caching for a day.
+# worse than the word it replaced. The terminal cannot be asked what it is
+# actually rendering: that needs a cursor-position report read back from the
+# tty, and the status line has no controlling terminal.
+#
+# So "auto" asks which font the terminal is *configured* with, and uses icons
+# only when that font is a patched one. Whether a Nerd Font is installed is not
+# the question -- having one installed says nothing about the terminal using it.
+# When the font cannot be determined the answer is no, because a wrong yes shows
+# the user a corrupted row while a wrong no just costs a few columns.
 icons_enabled() {
     case "$ICONS" in
         1|true|yes) return 0 ;;
         0|false|no) return 1 ;;
     esac
-    local f="$CACHE_DIR/nerdfont" age now v
+    local f="$CACHE_DIR/nerdfont" age now v font
     now=$(date +%s)
     if [[ -f "$f" ]]; then
         age=$(( now - $(mtime "$f") ))
@@ -187,12 +212,10 @@ icons_enabled() {
         fi
     fi
     v=0
-    if ls "$HOME/Library/Fonts" /Library/Fonts /System/Library/Fonts 2>/dev/null \
-        | grep -qi nerd; then
-        v=1
-    elif command -v fc-list >/dev/null 2>&1 && fc-list 2>/dev/null | grep -qi nerd; then
-        v=1
-    fi
+    font=$(terminal_font)
+    case "$font" in
+        *[Nn]erd*|*NF-*|*NFM-*|*NFP-*) v=1 ;;
+    esac
     mkdir -p "$CACHE_DIR" 2>/dev/null
     printf '%s' "$v" > "$f" 2>/dev/null
     [[ "$v" == 1 ]]

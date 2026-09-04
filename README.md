@@ -83,8 +83,8 @@ Set these as environment variables, or edit the block at the top of `statusline.
 | `CLAUDE_STATUSLINE_BRANCH_MAX`   | `0` (no ceiling)         | Optional hard ceiling for the branch, cut from the tail.                                                                                                    |
 | `CLAUDE_STATUSLINE_PEER_MAX`     | `0` (no ceiling)         | Optional hard ceiling for the session name, cut from the **front** (`…-src-8d`) — the suffix is what tells two sessions apart.                               |
 | `CLAUDE_STATUSLINE_VERSIONS`     | `1`                      | Set to `0` to drop the runtime-version row entirely.                                                                                                        |
-| `CLAUDE_STATUSLINE_ICONS`        | `auto`                   | `auto` uses Nerd Font icons for runtimes when a Nerd Font is installed, words otherwise. `1` forces icons, `0` forces words.                                 |
-| `CLAUDE_STATUSLINE_FONT_TTL`     | `86400`                  | Seconds the Nerd Font check is cached for. Lower it if you just installed one and want the icons sooner.                                                     |
+| `CLAUDE_STATUSLINE_ICONS`        | `auto`                   | `auto` uses Nerd Font icons only when the terminal is configured with a patched font, words otherwise. `1` forces icons, `0` forces words.                   |
+| `CLAUDE_STATUSLINE_FONT_TTL`     | `3600`                   | Seconds the terminal-font check is cached for.                                                                                                              |
 | `CLAUDE_STATUSLINE_ICON_WIDTH`   | `2`                      | Columns budgeted per icon. Most terminals draw them single-width; 2 is the safe assumption, since under-budgeting is what clips a row. Set `1` to tighten.   |
 | `CLAUDE_STATUSLINE_VERSIONS_TTL` | `300`                    | Seconds a directory's runtime versions are cached for. Lower it if you switch runtimes often and want the row to catch up sooner.                            |
 
@@ -117,7 +117,11 @@ Framework versions come out of `composer.lock`, not `php artisan --version`, whi
 
 Runtimes are labelled with [Nerd Font](https://www.nerdfonts.com) icons (` 22.22.2 ·  8.5.8 ·  12.69.1`) when one is installed, and with words when it is not.
 
-The glyphs live in the Unicode private use area, so a terminal without a patched font substitutes some arbitrary character rather than showing nothing — worse than the word it replaced. There is no way to ask a terminal what it is actually rendering: that would need a cursor-position report read back from the tty, and the status line has no controlling terminal. So `auto` settles for the one thing that is knowable — whether a Nerd Font is installed at all — cached for a day. Note that *installed* is not *selected*: if you have a Nerd Font but your terminal is set to a different one, force words with `CLAUDE_STATUSLINE_ICONS=0`.
+The glyphs live in the Unicode private use area, so a terminal without a patched font substitutes some arbitrary character rather than showing nothing — worse than the word it replaced. There is no way to ask a terminal what it is actually rendering: that would need a cursor-position report read back from the tty, and the status line has no controlling terminal.
+
+So `auto` asks which font the terminal is *configured* with, and uses icons only when that font is a patched one. Whether a Nerd Font is merely installed is not the question — having one installed says nothing about the terminal using it. When the font cannot be determined the answer is no, because a wrong yes shows a corrupted row while a wrong no only costs a few columns.
+
+Reading the configured font currently works for macOS Terminal.app. Anywhere else, `auto` yields words; set `CLAUDE_STATUSLINE_ICONS=1` if your terminal does use a patched font. The result is cached for `CLAUDE_STATUSLINE_FONT_TTL` seconds, so after changing your terminal font either wait it out or `rm -rf ~/.claude/statusline-cache`.
 
 The probes are real subprocesses, which is too much to spend on every render, so the result is cached per directory under `~/.claude/statusline-cache` for `CLAUDE_STATUSLINE_VERSIONS_TTL` seconds — about 50 ms on a cold cache, nothing on a warm one. The cache expires by age rather than by manifest mtime, because the manifests are not what changes when you switch runtime with `nvm`, `asdf`, `mise` or Herd.
 
