@@ -163,6 +163,28 @@ probe_versions() {
     return 0
 }
 
+# Font families configured for a JetBrains IDE's built-in terminal (PhpStorm,
+# IntelliJ, and the rest). Both the primary and the secondary matter: JediTerm
+# falls back to the secondary for glyphs the primary lacks, so a patched font in
+# either slot is enough. Printing nothing means no family is configured, which
+# means the IDE default -- and that is never a patched font.
+jetbrains_fonts() {
+    local base dir product f
+    base="$HOME/Library/Application Support/JetBrains"
+    [[ -d "$base" ]] || base="$HOME/.config/JetBrains"
+    [[ -d "$base" ]] || return
+    # com.jetbrains.PhpStorm -> PhpStorm, so the right IDE's profile is read
+    # when several are installed. Newest wins among its versioned directories.
+    product="${__CFBundleIdentifier##*.}"
+    [[ -n "$product" ]] && dir=$(ls -dt "$base/$product"* 2>/dev/null | head -1)
+    [[ -n "$dir" ]] || dir=$(ls -dt "$base"/*/ 2>/dev/null | head -1)
+    [[ -n "$dir" ]] || return
+    for f in terminal-font.xml console-font.xml editor-font.xml; do
+        [[ -f "$dir/options/$f" ]] || continue
+        sed -n 's/.*FONT_FAMILY" value="\([^"]*\)".*/\1/p' "$dir/options/$f"
+    done
+}
+
 # The font macOS Terminal.app is configured to use, or nothing when it cannot be
 # determined. The name is buried in an NSKeyedArchiver blob inside the profile,
 # where NSName is a reference into the archive's $objects table.
@@ -193,7 +215,8 @@ terminal_font() {
 # tty, and the status line has no controlling terminal.
 #
 # So "auto" asks which font the terminal is *configured* with, and uses icons
-# only when that font is a patched one. Whether a Nerd Font is installed is not
+# only when that font is a patched one. JetBrains IDE terminals and macOS
+# Terminal.app can be read; elsewhere nothing is found and the answer is no. Whether a Nerd Font is installed is not
 # the question -- having one installed says nothing about the terminal using it.
 # When the font cannot be determined the answer is no, because a wrong yes shows
 # the user a corrupted row while a wrong no just costs a few columns.
@@ -212,7 +235,11 @@ icons_enabled() {
         fi
     fi
     v=0
-    font=$(terminal_font)
+    if [[ "$TERMINAL_EMULATOR" == "JetBrains-JediTerm" ]]; then
+        font=$(jetbrains_fonts)
+    else
+        font=$(terminal_font)
+    fi
     case "$font" in
         *[Nn]erd*|*NF-*|*NFM-*|*NFP-*) v=1 ;;
     esac

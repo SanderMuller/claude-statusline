@@ -121,7 +121,7 @@ The glyphs live in the Unicode private use area, so a terminal without a patched
 
 So `auto` asks which font the terminal is *configured* with, and uses icons only when that font is a patched one. Whether a Nerd Font is merely installed is not the question — having one installed says nothing about the terminal using it. When the font cannot be determined the answer is no, because a wrong yes shows a corrupted row while a wrong no only costs a few columns.
 
-Reading the configured font currently works for macOS Terminal.app. Anywhere else, `auto` yields words; set `CLAUDE_STATUSLINE_ICONS=1` if your terminal does use a patched font. The result is cached for `CLAUDE_STATUSLINE_FONT_TTL` seconds, so after changing your terminal font either wait it out or `rm -rf ~/.claude/statusline-cache`.
+Reading the configured font works for JetBrains IDE terminals (PhpStorm, IntelliJ and the rest) and macOS Terminal.app. For JetBrains both the primary and the secondary font family count, since JediTerm falls back to the secondary for glyphs the primary lacks. Anywhere else, `auto` yields words; set `CLAUDE_STATUSLINE_ICONS=1` if your terminal does use a patched font. The result is cached for `CLAUDE_STATUSLINE_FONT_TTL` seconds, so after changing your terminal font either wait it out or `rm -rf ~/.claude/statusline-cache`.
 
 The probes are real subprocesses, which is too much to spend on every render, so the result is cached per directory under `~/.claude/statusline-cache` for `CLAUDE_STATUSLINE_VERSIONS_TTL` seconds — about 50 ms on a cold cache, nothing on a warm one. The cache expires by age rather than by manifest mtime, because the manifests are not what changes when you switch runtime with `nvm`, `asdf`, `mise` or Herd.
 
