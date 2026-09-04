@@ -38,6 +38,13 @@ WIDTH="${CLAUDE_STATUSLINE_WIDTH:-${COLUMNS:-80}}"
 # is clipped after 75 characters plus an ellipsis.
 GUTTER="${CLAUDE_STATUSLINE_GUTTER:-4}"
 MAX_ROWS="${CLAUDE_STATUSLINE_MAX_ROWS:-0}"
+# Runtime versions (node / php / laravel), shown only for projects that declare
+# them. Reading them costs a process spawn each, far too much to pay on every
+# render, so results are cached per directory for VERSIONS_TTL seconds. Set
+# VERSIONS to 0 to switch the row off entirely.
+VERSIONS="${CLAUDE_STATUSLINE_VERSIONS:-1}"
+VERSIONS_TTL="${CLAUDE_STATUSLINE_VERSIONS_TTL:-300}"
+CACHE_DIR="${CLAUDE_CONFIG_DIR:-$HOME/.claude}/statusline-cache"
 # ----------------------------------------------------------------------------
 
 input=$(cat)
@@ -58,6 +65,51 @@ elide_head() {
     local v=$1 max=$2
     if (( max > 0 && ${#v} > max )); then v="…${v: -$(( max - 1 ))}"; fi
     printf '%s' "$v"
+}
+
+# Modification time of a file as a unix epoch, on macOS (BSD) or Linux (GNU).
+mtime() { stat -f %m "$1" 2>/dev/null || stat -c %Y "$1" 2>/dev/null; }
+
+# Runtime versions for the project in $1, as "name<TAB>version" lines.
+#
+# Only what the project actually declares is reported: node for a package.json,
+# php for a composer.json, laravel when composer.lock pins laravel/framework.
+# The laravel version is read from composer.lock rather than `php artisan
+# --version`, which would boot the whole framework.
+#
+# node and php are real subprocesses, so the whole result is cached per
+# directory. The cache is invalidated by age rather than by manifest mtime: the
+# manifests are not what changes when you switch runtime with nvm or Herd.
+read_versions() {
+    local d=$1 key f age now out="" v
+    [[ "$VERSIONS" == 1 && -n "$d" && -d "$d" ]] || return
+    now=$(date +%s)
+    key=$(printf '%s' "$d" | cksum | cut -d' ' -f1)
+    f="$CACHE_DIR/versions.$key"
+    if [[ -f "$f" ]]; then
+        age=$(( now - $(mtime "$f") ))
+        if (( age >= 0 && age < VERSIONS_TTL )); then cat "$f"; return; fi
+    fi
+    if [[ -f "$d/package.json" ]] && command -v node >/dev/null 2>&1; then
+        v=$(cd "$d" && node -v 2>/dev/null)
+        [[ -n "$v" ]] && out="${out}node	${v#v}
+"
+    fi
+    if [[ -f "$d/composer.json" ]] && command -v php >/dev/null 2>&1; then
+        v=$(cd "$d" && php -r 'echo PHP_VERSION;' 2>/dev/null)
+        [[ -n "$v" ]] && out="${out}php	${v}
+"
+    fi
+    if [[ -f "$d/composer.lock" ]]; then
+        v=$(jq -r '(.packages // [])[] | select(.name == "laravel/framework") | .version' \
+            "$d/composer.lock" 2>/dev/null | head -1)
+        v="${v#v}"
+        [[ -n "$v" ]] && out="${out}laravel	${v}
+"
+    fi
+    mkdir -p "$CACHE_DIR" 2>/dev/null
+    printf '%b' "$out" > "$f" 2>/dev/null
+    printf '%b' "$out"
 }
 
 # Format a unix epoch with a strftime spec, on macOS (BSD date) or Linux (GNU).
@@ -99,6 +151,7 @@ MDL="${e}[1;95m"            # bold magenta — model
 ARROW="${e}[38;5;245m→${RST}"  # subfolder separator inside a repo
 GIT="${e}[1;32m"            # bold green — git branch
 PEE="${e}[1;33m"            # bold yellow — peer session name
+VER="${e}[38;5;114m"        # soft green — runtime versions
 TRK="${e}[38;5;240m"        # dim grey — unfilled part of a bar
 SEP="${e}[38;5;245m·${RST}" # separator dot
 
@@ -226,6 +279,18 @@ rate_seg() {
     fi
     add_seg "$seg" "$w"
 }
+
+# Runtime versions get a row of their own, between "where you are" and "what
+# you have left".
+before=${#seg_text[@]}
+brk
+while IFS=$'\t' read -r vname vver; do
+    [[ -n "$vname" && -n "$vver" ]] || continue
+    add_seg "${LBL}${vname}${RST} ${VER}${vver}${RST}" $(( ${#vname} + 1 + ${#vver} ))
+done <<EOF
+$(read_versions "$dir")
+EOF
+(( ${#seg_text[@]} == before )) && _brk=0
 
 # The rate-limit windows start their own row. They are a different kind of
 # reading from the working-context segments above, and letting the packer merge
