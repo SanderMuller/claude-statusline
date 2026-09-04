@@ -44,6 +44,12 @@ MAX_ROWS="${CLAUDE_STATUSLINE_MAX_ROWS:-0}"
 # VERSIONS to 0 to switch the row off entirely.
 VERSIONS="${CLAUDE_STATUSLINE_VERSIONS:-1}"
 VERSIONS_TTL="${CLAUDE_STATUSLINE_VERSIONS_TTL:-300}"
+# Label runtimes with Nerd Font icons instead of words. Off by default: without
+# a patched font these render as tofu boxes. ICON_WIDTH is how many columns an
+# icon is budgeted; most terminals draw these single-width, but 2 is the safe
+# assumption because under-budgeting is what gets a row clipped.
+ICONS="${CLAUDE_STATUSLINE_ICONS:-0}"
+ICON_WIDTH="${CLAUDE_STATUSLINE_ICON_WIDTH:-2}"
 CACHE_DIR="${CLAUDE_CONFIG_DIR:-$HOME/.claude}/statusline-cache"
 # ----------------------------------------------------------------------------
 
@@ -72,16 +78,15 @@ mtime() { stat -f %m "$1" 2>/dev/null || stat -c %Y "$1" 2>/dev/null; }
 
 # Runtime versions for the project in $1, as "name<TAB>version" lines.
 #
-# Only what the project actually declares is reported: node for a package.json,
-# php for a composer.json, laravel when composer.lock pins laravel/framework.
-# The laravel version is read from composer.lock rather than `php artisan
-# --version`, which would boot the whole framework.
+# Only what the project actually declares is reported, so a Rust repo pays
+# nothing for the node and php checks. Framework versions are read out of the
+# lock file rather than by asking the framework, which would mean booting it.
 #
-# node and php are real subprocesses, so the whole result is cached per
-# directory. The cache is invalidated by age rather than by manifest mtime: the
-# manifests are not what changes when you switch runtime with nvm or Herd.
+# The probes are real subprocesses, so the whole result is cached per directory.
+# The cache is invalidated by age rather than by manifest mtime: the manifests
+# are not what changes when you switch runtime with nvm, asdf, mise or Herd.
 read_versions() {
-    local d=$1 key f age now out="" v
+    local d=$1 key f age now
     [[ "$VERSIONS" == 1 && -n "$d" && -d "$d" ]] || return
     now=$(date +%s)
     key=$(printf '%s' "$d" | cksum | cut -d' ' -f1)
@@ -90,26 +95,89 @@ read_versions() {
         age=$(( now - $(mtime "$f") ))
         if (( age >= 0 && age < VERSIONS_TTL )); then cat "$f"; return; fi
     fi
-    if [[ -f "$d/package.json" ]] && command -v node >/dev/null 2>&1; then
-        v=$(cd "$d" && node -v 2>/dev/null)
-        [[ -n "$v" ]] && out="${out}node	${v#v}
-"
-    fi
-    if [[ -f "$d/composer.json" ]] && command -v php >/dev/null 2>&1; then
-        v=$(cd "$d" && php -r 'echo PHP_VERSION;' 2>/dev/null)
-        [[ -n "$v" ]] && out="${out}php	${v}
-"
-    fi
-    if [[ -f "$d/composer.lock" ]]; then
-        v=$(jq -r '(.packages // [])[] | select(.name == "laravel/framework") | .version' \
-            "$d/composer.lock" 2>/dev/null | head -1)
-        v="${v#v}"
-        [[ -n "$v" ]] && out="${out}laravel	${v}
-"
-    fi
+    local out
+    out=$(probe_versions "$d")
     mkdir -p "$CACHE_DIR" 2>/dev/null
-    printf '%b' "$out" > "$f" 2>/dev/null
-    printf '%b' "$out"
+    printf '%s\n' "$out" > "$f" 2>/dev/null
+    printf '%s\n' "$out"
+}
+
+# True when the project directory holds any of the named manifest files.
+declares() {
+    local f
+    for f in "$@"; do [[ -e "$vdir/$f" ]] && return 0; done
+    return 1
+}
+
+# Run a version command in the project directory and emit "name<TAB>version".
+# $2 is an awk field index into the command's first output line; 0 means the
+# whole line is already the version. A leading "v"/"go" is stripped.
+probe() {
+    local name=$1 field=$2; shift 2
+    command -v "$1" >/dev/null 2>&1 || return
+    local out
+    out=$(cd "$vdir" && "$@" 2>&1 | head -1)
+    [[ -n "$out" ]] || return
+    if (( field > 0 )); then out=$(printf '%s' "$out" | awk -v i="$field" '{print $i}'); fi
+    out="${out#v}"; out="${out#go}"
+    # `ruby -v` reports "3.3.0p0"; the patchlevel is noise here.
+    [[ "$name" == ruby ]] && out="${out%%p*}"
+    [[ -n "$out" ]] || return
+    printf '%s\t%s\n' "$name" "$out"
+}
+
+# A package's version out of composer.lock, without booting anything.
+composer_pkg() {
+    local pkg=$1 v
+    [[ -f "$vdir/composer.lock" ]] || return
+    v=$(jq -r --arg p "$pkg" '(.packages // [])[] | select(.name == $p) | .version' \
+        "$vdir/composer.lock" 2>/dev/null | head -1)
+    printf '%s' "${v#v}"
+}
+
+probe_versions() {
+    local vdir=$1 v
+    # node is always reported, not just for a package.json: it is what the CLI
+    # itself runs on. Bun and Deno replace node rather than accompany it, so
+    # they stay keyed off their own manifests.
+    probe node 0 node -v
+    declares bun.lockb bun.lock && probe bun 0 bun -v
+    declares deno.json deno.jsonc deno.lock && probe deno 2 deno -V
+    # PHP, plus whichever framework the lock file pins.
+    if declares composer.json; then
+        probe php 0 php -r 'echo PHP_VERSION;'
+        v=$(composer_pkg laravel/framework)
+        if [[ -n "$v" ]]; then
+            printf 'laravel\t%s\n' "$v"
+        else
+            v=$(composer_pkg symfony/framework-bundle)
+            [[ -n "$v" ]] && printf 'symfony\t%s\n' "$v"
+        fi
+    fi
+    declares pyproject.toml requirements.txt setup.py Pipfile && probe python 2 python3 -V
+    declares go.mod        && probe go     3 go version
+    declares Cargo.toml    && probe rust   2 rustc -V
+    declares Gemfile .ruby-version && probe ruby 2 ruby -v
+    return 0
+}
+
+# Nerd Font icon for a runtime, from the devicons range. Prints nothing when
+# icons are off or the runtime has none, so the caller falls back to the word.
+runtime_icon() {
+    [[ "$ICONS" == 1 ]] || return
+    # Literal glyphs, not \u escapes: bash 3.2's printf does not expand those.
+    case $1 in
+        node)    printf '' ;;
+        php)     printf '' ;;
+        laravel) printf '' ;;
+        symfony) printf '' ;;
+        python)  printf '' ;;
+        go)      printf '' ;;
+        rust)    printf '' ;;
+        ruby)    printf '' ;;
+        deno)    printf '' ;;
+        bun)     printf '' ;;
+    esac
 }
 
 # Format a unix epoch with a strftime spec, on macOS (BSD date) or Linux (GNU).
@@ -286,7 +354,13 @@ before=${#seg_text[@]}
 brk
 while IFS=$'\t' read -r vname vver; do
     [[ -n "$vname" && -n "$vver" ]] || continue
-    add_seg "${LBL}${vname}${RST} ${VER}${vver}${RST}" $(( ${#vname} + 1 + ${#vver} ))
+    vicon=$(runtime_icon "$vname")
+    if [[ -n "$vicon" ]]; then
+        add_seg "${LBL}${vicon}${RST} ${VER}${vver}${RST}" \
+                $(( ICON_WIDTH + 1 + ${#vver} ))
+    else
+        add_seg "${LBL}${vname}${RST} ${VER}${vver}${RST}" $(( ${#vname} + 1 + ${#vver} ))
+    fi
 done <<EOF
 $(read_versions "$dir")
 EOF

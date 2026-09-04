@@ -35,9 +35,8 @@ Prefer not to pipe to a shell? See [manual install](#manual-install).
 | `git <branch>`          | `git symbolic-ref HEAD`          | Short SHA when detached; omitted outside a repo                             |
 | model                   | `model.display_name`             | `Opus 5 (1M context)` is compacted to `Opus 5 1M`                           |
 | `ctx <bar> NN%`         | `context_window.used_percentage` | Bar colored by usage                                                        |
-| `node <version>`        | `node -v`                        | Only when the project has a `package.json`                                   |
-| `php <version>`         | `php -r 'echo PHP_VERSION;'`     | Only when the project has a `composer.json`                                  |
-| `laravel <version>`     | `composer.lock`                  | Only when `laravel/framework` is pinned there                                |
+| `node <version>`        | `node -v`                        | Always shown — the CLI itself runs on node                                  |
+| runtime versions        | see [runtime versions](#runtime-versions) | `bun`, `deno`, `php`, `laravel`, `symfony`, `python`, `go`, `rust`, `ruby` — each only when the project declares it |
 | `5h <bar> NN% ↻ <time>` | `rate_limits.five_hour.*`        | 5-hour rate-limit window; `↻` marks the reset time                          |
 | `7d <bar> NN% ↻ <time>` | `rate_limits.seven_day.*`        | 7-day rate-limit window                                                     |
 | `peer <name>`           | `~/.claude/sessions/*.json`      | The name other sessions use to message this one, matched on `session_id`    |
@@ -84,6 +83,8 @@ Set these as environment variables, or edit the block at the top of `statusline.
 | `CLAUDE_STATUSLINE_BRANCH_MAX`   | `0` (no ceiling)         | Optional hard ceiling for the branch, cut from the tail.                                                                                                    |
 | `CLAUDE_STATUSLINE_PEER_MAX`     | `0` (no ceiling)         | Optional hard ceiling for the session name, cut from the **front** (`…-src-8d`) — the suffix is what tells two sessions apart.                               |
 | `CLAUDE_STATUSLINE_VERSIONS`     | `1`                      | Set to `0` to drop the runtime-version row entirely.                                                                                                        |
+| `CLAUDE_STATUSLINE_ICONS`        | `0`                      | Set to `1` to label runtimes with Nerd Font icons instead of words. Needs a [Nerd Font](https://www.nerdfonts.com).                                          |
+| `CLAUDE_STATUSLINE_ICON_WIDTH`   | `2`                      | Columns budgeted per icon. Most terminals draw them single-width; 2 is the safe assumption, since under-budgeting is what clips a row. Set `1` to tighten.   |
 | `CLAUDE_STATUSLINE_VERSIONS_TTL` | `300`                    | Seconds a directory's runtime versions are cached for. Lower it if you switch runtimes often and want the row to catch up sooner.                            |
 
 The color palette and the green/yellow/red thresholds are defined just below that block and are easy to tweak.
@@ -96,11 +97,26 @@ Long values are not shortened while there is room for them. Packing already move
 
 ### Runtime versions
 
-Only what the project declares is reported: `node` for a `package.json`, `php` for a `composer.json`, `laravel` when `composer.lock` pins `laravel/framework`. A Rust repo shows none of them and pays nothing for the check.
+`node` is always shown, since the CLI itself runs on it. Everything else appears only when the project declares it, so a Rust repo pays nothing for the PHP and Python checks:
 
-`node` and `php` are real subprocesses, which is too much to spend on every render, so the result is cached per directory under `~/.claude/statusline-cache` for `CLAUDE_STATUSLINE_VERSIONS_TTL` seconds — about 50 ms on a cold cache, nothing on a warm one. The cache expires by age rather than by manifest mtime, because the manifests are not what changes when you switch runtime with `nvm` or Herd.
+| Shown as  | Detected by                                                | Read from                    |
+|-----------|------------------------------------------------------------|------------------------------|
+| `node`    | always                                                     | `node -v`                    |
+| `bun`     | `bun.lockb`, `bun.lock`                                    | `bun -v`                     |
+| `deno`    | `deno.json`, `deno.jsonc`, `deno.lock`                     | `deno -V`                    |
+| `php`     | `composer.json`                                            | `php -r 'echo PHP_VERSION;'` |
+| `laravel` | `laravel/framework` in `composer.lock`                     | `composer.lock`              |
+| `symfony` | `symfony/framework-bundle` in `composer.lock`              | `composer.lock`              |
+| `python`  | `pyproject.toml`, `requirements.txt`, `setup.py`, `Pipfile`| `python3 -V`                 |
+| `go`      | `go.mod`                                                   | `go version`                 |
+| `rust`    | `Cargo.toml`                                               | `rustc -V`                   |
+| `ruby`    | `Gemfile`, `.ruby-version`                                 | `ruby -v`                    |
 
-The Laravel version comes from `composer.lock`, not `php artisan --version`, which would boot the whole framework on every refresh.
+Framework versions come out of `composer.lock`, not `php artisan --version`, which would boot the whole framework on every refresh.
+
+Set `CLAUDE_STATUSLINE_ICONS=1` to label them with Nerd Font icons (` 22.22.2 ·  8.5.8 ·  12.69.1`) instead of words. It is off by default because without a [Nerd Font](https://www.nerdfonts.com) the glyphs render as tofu boxes.
+
+The probes are real subprocesses, which is too much to spend on every render, so the result is cached per directory under `~/.claude/statusline-cache` for `CLAUDE_STATUSLINE_VERSIONS_TTL` seconds — about 50 ms on a cold cache, nothing on a warm one. The cache expires by age rather than by manifest mtime, because the manifests are not what changes when you switch runtime with `nvm`, `asdf`, `mise` or Herd.
 
 Row 1 is where you are and what you are using — directory, branch, model, context. Row 2 onward is your budget — the rate-limit windows and the session name. The rate-limit group is marked "starts a new row", so a wide terminal never pulls `5h` up next to `ctx` and the layout does not rearrange itself every time you resize.
 
