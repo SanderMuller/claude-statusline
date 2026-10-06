@@ -9,7 +9,8 @@
 #
 # It downloads statusline.sh into your Claude Code config dir and merges the
 # `statusLine` key into settings.json WITHOUT touching your other settings
-# (a timestamped backup is made first).
+# (a timestamped backup is made first). refreshInterval re-runs the script every
+# 30 seconds so the prompt-cache countdown keeps moving while the session idles.
 
 set -euo pipefail
 
@@ -64,11 +65,11 @@ if [[ -f "$SETTINGS" ]]; then
     cp "$SETTINGS" "$backup"
     info "Backed up settings -> $backup"
     tmp_settings="$(mktemp)"
-    jq --arg cmd "$CMD" '.statusLine = {type:"command", command:$cmd}' "$SETTINGS" > "$tmp_settings"
+    jq --arg cmd "$CMD" '.statusLine = {type:"command", command:$cmd, refreshInterval:30}' "$SETTINGS" > "$tmp_settings"
     mv "$tmp_settings" "$SETTINGS"
     info "Merged statusLine into $SETTINGS"
 else
-    jq -n --arg cmd "$CMD" '{statusLine:{type:"command", command:$cmd}}' > "$SETTINGS"
+    jq -n --arg cmd "$CMD" '{statusLine:{type:"command", command:$cmd, refreshInterval:30}}' > "$SETTINGS"
     info "Created $SETTINGS"
 fi
 

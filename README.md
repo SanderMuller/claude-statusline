@@ -4,7 +4,7 @@
 [![Shell: Bash](https://img.shields.io/badge/shell-bash-4EAA25?style=flat-square&logo=gnubash&logoColor=white)](statusline.sh)
 [![Claude Code](https://img.shields.io/badge/Claude%20Code-status%20line-D97757?style=flat-square&logo=anthropic&logoColor=white)](https://docs.claude.com/en/docs/claude-code/statusline)
 
-A responsive, color-coded status line for [Claude Code](https://docs.claude.com/en/docs/claude-code). It shows your working directory, git branch, model, context-window usage, the runtime versions the project actually uses, your 5-hour / 7-day rate-limit windows with progress bars and reset times, and the session name other Claude Code sessions use to message this one.
+A responsive, color-coded status line for [Claude Code](https://docs.claude.com/en/docs/claude-code). It shows your working directory, git branch, model, context-window usage, the runtime versions the project actually uses, your 5-hour / 7-day rate-limit windows with progress bars and reset times, the session name other Claude Code sessions use to message this one, and how long the prompt cache stays warm.
 
 Segments are packed into as many rows as your terminal needs, with a fixed break between the working-context group and the rate-limit group so the two never share a row.
 
@@ -13,6 +13,7 @@ Segments are packed into as many rows as your terminal needs, with a fixed break
 ```
 PWD: app · git main · Claude Opus 4.8 · ctx ━━━───────── 24%
 5h ━━━━──────── 31% ↻ 14:30 · 7d ━━────────── 12% ↻ Tue 09:00 · peer app-55
+cache ● 1h ████░░ 38m left · hit 91% · misses 0
 ```
 
 In the terminal the directory is cyan, the branch green, the model magenta, the session name yellow, labels light-blue, values bright white, and each bar is green / yellow / red by how full it is.
@@ -23,7 +24,7 @@ In the terminal the directory is cyan, the branch green, the model magenta, the 
 curl -fsSL https://raw.githubusercontent.com/sandermuller/claude-statusline/main/install.sh | bash
 ```
 
-The installer drops `statusline.sh` into your Claude Code config directory and merges the `statusLine` key into `settings.json`. It backs up `settings.json` first and leaves the rest of your settings alone. Start a new interaction in Claude Code and the status line appears.
+The installer drops `statusline.sh` into your Claude Code config directory and merges the `statusLine` key into `settings.json`, with `"refreshInterval": 30` so the cache countdown keeps moving while the session is idle. It backs up `settings.json` first and leaves the rest of your settings alone. Start a new interaction in Claude Code and the status line appears.
 
 Prefer not to pipe to a shell? See [manual install](#manual-install).
 
@@ -40,8 +41,21 @@ Prefer not to pipe to a shell? See [manual install](#manual-install).
 | `5h <bar> NN% ↻ <time>` | `rate_limits.five_hour.*`        | 5-hour rate-limit window; `↻` marks the reset time                          |
 | `7d <bar> NN% ↻ <time>` | `rate_limits.seven_day.*`        | 7-day rate-limit window                                                     |
 | `peer <name>`           | `~/.claude/sessions/*.json`      | The name other sessions use to message this one, matched on `session_id`    |
+| `cache ● <ttl> <bar> <t> left` | `prompt_cache.*`          | See [the `cache` segment](#the-cache-segment)                               |
 
 Bar colors: green below 50%, yellow 50–79%, red 80%+. Bars are drawn as rules — a heavy line in the usage color over a light grey track — to keep their visual weight down.
+
+### The `cache` segment
+
+The last row shows the main conversation's [prompt cache](https://code.claude.com/docs/en/prompt-caching), from the `prompt_cache` object Claude Code v2.1.251+ puts on the status-line input. Nothing is shown until that object appears (after the first API response), and fields an older version lacks are skipped.
+
+| State                          | Shown as                                                                 |
+|--------------------------------|--------------------------------------------------------------------------|
+| Warm                           | `cache ● 1h ████░░ 38m left · hit 91% · misses 0` in green — the bar drains as the TTL runs out |
+| Warm, under 20% of the TTL left | the same, in yellow                                                     |
+| Cold                           | `cache ○ cold · next message re-caches 82k tokens` in red, plus `· cause: <cause>` when Claude Code identified why the last miss happened |
+
+The countdown is computed when the script runs, so it needs `refreshInterval` in the `statusLine` settings to keep moving while you're idle. The installer sets it to 30 seconds.
 
 ### The `PWD` segment
 
@@ -80,7 +94,7 @@ Set `CLAUDE_STATUSLINE_PROJECT_ROOT=""` to disable the repo shortening — then 
 
 ## Requirements
 
-- Claude Code (recent enough to expose the `rate_limits.*` and `context_window.*` fields on the status-line input).
+- Claude Code (recent enough to expose the `rate_limits.*` and `context_window.*` fields on the status-line input). The `cache` row needs v2.1.251 or later and is omitted on older versions.
 - [`jq`](https://jqlang.github.io/jq/) — `brew install jq` on macOS, `sudo apt install jq` on Debian/Ubuntu.
 - A terminal with 256-color ANSI support (iTerm2, Kitty, WezTerm, modern Terminal.app, most Linux terminals).
 - The 5h/7d row only appears on subscription plans that report rate limits. On API-key billing those fields are absent and that row is simply omitted.
@@ -94,6 +108,7 @@ Set these as environment variables, or edit the block at the top of `statusline.
 | `CLAUDE_STATUSLINE_PROJECT_ROOT` | `$HOME/Documents/GitHub` | Paths under this folder are shown relative to it (`~/Documents/GitHub/app` → `app`). Set to `""` to just collapse `$HOME` to `~`.                           |
 | `CLAUDE_STATUSLINE_POLYSCOPE_ROOT` | `$HOME/.polyscope/clones` | Polyscope clone root. Paths under it are shown as `polyscope → <clone>`, dropping the workspace hash. Set to `""` to disable.                              |
 | `CLAUDE_STATUSLINE_BAR_WIDTH`    | `12`                     | Width of each progress bar in columns.                                                                                                                      |
+| `CLAUDE_STATUSLINE_CACHE_BAR_WIDTH` | `6`                   | Width of the prompt-cache countdown bar in columns.                                                                                                         |
 | `CLAUDE_CONFIG_DIR`              | `$HOME/.claude`          | Where the session registry (`sessions/`) is read from for the `peer` name.                                                                                   |
 | `CLAUDE_STATUSLINE_WIDTH`        | `$COLUMNS`, else `80`    | Width to lay out against. Claude Code exports `COLUMNS`, so this is rarely worth setting.                                                                    |
 | `CLAUDE_STATUSLINE_GUTTER`       | `4`                      | Columns held back from `$COLUMNS`. Claude Code renders the status line in a padded container, so the usable width is narrower — measured at 4.               |
@@ -173,7 +188,8 @@ See the [Claude Code status line docs](https://docs.claude.com/en/docs/claude-co
    {
      "statusLine": {
        "type": "command",
-       "command": "bash ~/.claude/statusline.sh"
+       "command": "bash ~/.claude/statusline.sh",
+       "refreshInterval": 30
      }
    }
    ```

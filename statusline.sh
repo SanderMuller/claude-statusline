@@ -4,6 +4,7 @@
 #
 #   PWD: <dir> · git <branch> · <model> · ctx <bar> NN%
 #   5h <bar> NN% ↻ <t> · 7d <bar> NN% ↻ <t> · peer <session>
+#   cache ● 1h ████░░ 38m left · hit NN% · misses N
 #
 # Segments are packed into as many rows as the terminal needs, with a fixed
 # break between the working-context group and the rate-limit group so the two
@@ -25,6 +26,8 @@ PROJECT_ROOT="${CLAUDE_STATUSLINE_PROJECT_ROOT-$HOME/Documents/GitHub}"
 # Set to "" to disable and fall back to the plain path rules.
 POLYSCOPE_ROOT="${CLAUDE_STATUSLINE_POLYSCOPE_ROOT-$HOME/.polyscope/clones}"
 BAR_WIDTH="${CLAUDE_STATUSLINE_BAR_WIDTH:-12}"
+# Width of the prompt-cache countdown bar, which drains as the TTL runs out.
+CACHE_BAR_WIDTH="${CLAUDE_STATUSLINE_CACHE_BAR_WIDTH:-6}"
 # Optional hard ceilings for the variable-length fields. 0 means "no ceiling":
 # the field is shown in full and only elided if it cannot fit a row on its own.
 BRANCH_MAX="${CLAUDE_STATUSLINE_BRANCH_MAX:-0}"
@@ -565,6 +568,73 @@ peer=$(peer_name "$sid")
 if [[ -n "$peer" ]]; then
     peer=$(elide_head "$peer" "$(cap "$PEER_MAX" 5)")
     add_seg "${LBL}peer${RST} ${PEE}${peer}${RST}" $(( 5 + ${#peer} ))
+fi
+
+# Prompt cache, on a row of its own. Absent until the main conversation's first
+# API response (and on Claude Code before 2.1.251), so nothing is shown until
+# then; fields an older version lacks are skipped. Fields are joined on \x1f:
+# read collapses runs of an IFS whitespace char like tab, losing empty fields.
+IFS=$'\x1f' read -r pc_on pc_warm pc_ttl pc_exp pc_hit pc_miss pc_recache pc_cause < <(
+    printf '%s' "$input" | jq -r '
+        .prompt_cache as $p
+        | if ($p | type) != "object" then "0"
+          else [
+            "1",
+            ($p.warm // "" | tostring),
+            ($p.ttl // ""),
+            ($p.expires_at // "" | tostring),
+            (if $p.hit_ratio == null then "" else ($p.hit_ratio * 100 | round | tostring) end),
+            ($p.misses // "" | tostring),
+            ($p.recache_tokens_if_cold // "" | tostring),
+            (($p.last_miss_cause.causes? // []) | join(", "))
+          ] | join("\u001f")
+          end' 2>/dev/null)
+if [[ "$pc_on" == 1 ]]; then
+    # Widths are tallied by hand: ${#s} counts bytes, not columns, under a
+    # non-UTF-8 locale, and every glyph here is multibyte.
+    pc_left=""
+    [[ -n "$pc_exp" ]] && pc_left=$(( pc_exp - $(date +%s) ))
+    # Warm data whose expiry has already passed is cold by the time it is shown.
+    if [[ "$pc_warm" == true ]] && [[ -z "$pc_left" || "$pc_left" -gt 0 ]]; then
+        case "$pc_ttl" in
+            *h) pc_total=$(( ${pc_ttl%h} * 3600 )) ;;
+            *m) pc_total=$(( ${pc_ttl%m} * 60 )) ;;
+            *)  pc_total=0 ;;
+        esac
+        pc_color="${e}[1;32m"
+        seg="cache ●"; w=7
+        [[ -n "$pc_ttl" ]] && { seg="$seg $pc_ttl"; w=$(( w + 1 + ${#pc_ttl} )); }
+        if [[ -n "$pc_left" ]]; then
+            if (( pc_total > 0 )); then
+                # Yellow once under 20% of the TTL is left.
+                (( pc_left * 5 < pc_total )) && pc_color="${e}[1;33m"
+                filled=$(( (pc_left * CACHE_BAR_WIDTH + pc_total - 1) / pc_total ))
+                (( filled > CACHE_BAR_WIDTH )) && filled=$CACHE_BAR_WIDTH
+                pc_bar=""
+                for (( i = 0; i < CACHE_BAR_WIDTH; i++ )); do
+                    if (( i < filled )); then pc_bar="${pc_bar}█"; else pc_bar="${pc_bar}░"; fi
+                done
+                seg="$seg $pc_bar"; w=$(( w + 1 + CACHE_BAR_WIDTH ))
+            fi
+            if   (( pc_left >= 3600 )); then t=$(printf '%dh%02dm' $(( pc_left / 3600 )) $(( pc_left % 3600 / 60 )))
+            elif (( pc_left >= 60 ));   then t="$(( pc_left / 60 ))m"
+            else                             t="${pc_left}s"
+            fi
+            seg="$seg $t left"; w=$(( w + 1 + ${#t} + 5 ))
+        fi
+        [[ -n "$pc_hit" ]] && { seg="$seg · hit ${pc_hit}%"; w=$(( w + 8 + ${#pc_hit} )); }
+        [[ -n "$pc_miss" ]] && { seg="$seg · misses $pc_miss"; w=$(( w + 10 + ${#pc_miss} )); }
+    else
+        pc_color="${e}[1;31m"
+        seg="cache ○ cold"; w=12
+        if [[ -n "$pc_recache" ]]; then
+            if (( pc_recache >= 1000 )); then t="$(( (pc_recache + 500) / 1000 ))k"; else t=$pc_recache; fi
+            seg="$seg · next message re-caches $t tokens"; w=$(( w + 26 + ${#t} + 7 ))
+        fi
+        [[ -n "$pc_cause" ]] && { seg="$seg · cause: $pc_cause"; w=$(( w + 10 + ${#pc_cause} )); }
+    fi
+    brk
+    add_seg "${pc_color}${seg}${RST}" "$w"
 fi
 
 # ---- Wrap segments into rows -----------------------------------------------
